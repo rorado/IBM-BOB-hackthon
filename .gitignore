@@ -55,4 +55,6 @@ prisma/migrations/**/migration.sql
 logs
 *.log
 
+what_is_that.md
+
 # Made with Bob
