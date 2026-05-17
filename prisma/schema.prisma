@@ -1,0 +1,396 @@
+// AI Codebase Autopilot - Database Schema
+// This schema defines the complete data model for the application
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// USER & AUTHENTICATION
+// ============================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  accounts      Account[]
+  sessions      Session[]
+  projects      Project[]
+  chatMessages  ChatMessage[]
+  
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============================================================================
+// PROJECT & CODEBASE
+// ============================================================================
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  
+  // Source information
+  sourceType  SourceType
+  githubUrl   String?
+  zipFileName String?
+  
+  // Metadata
+  language    String?
+  framework   String?
+  totalFiles  Int      @default(0)
+  totalLines  Int      @default(0)
+  
+  // Status
+  status      ProjectStatus @default(PENDING)
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  analyzedAt  DateTime?
+  
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  fileNodes        FileNode[]
+  analysisResult   AnalysisResult?
+  codeFlowGraphs   CodeFlowGraph[]
+  featureModules   FeatureModule[]
+  chatMessages     ChatMessage[]
+  documentation    Documentation[]
+  
+  @@index([userId])
+  @@index([status])
+  @@map("projects")
+}
+
+enum SourceType {
+  GITHUB
+  ZIP
+}
+
+enum ProjectStatus {
+  PENDING
+  ANALYZING
+  COMPLETED
+  FAILED
+}
+
+// ============================================================================
+// FILE STRUCTURE
+// ============================================================================
+
+model FileNode {
+  id          String   @id @default(cuid())
+  projectId   String
+  
+  // File information
+  path        String
+  name        String
+  type        FileType
+  extension   String?
+  size        Int      @default(0)
+  lines       Int      @default(0)
+  
+  // Content
+  content     String?  @db.Text
+  
+  // Hierarchy
+  parentId    String?
+  depth       Int      @default(0)
+  
+  // AI Analysis
+  summary     String?  @db.Text
+  complexity  Int?
+  importance  Int?     // 1-10 scale
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent      FileNode? @relation("FileHierarchy", fields: [parentId], references: [id])
+  children    FileNode[] @relation("FileHierarchy")
+  
+  @@unique([projectId, path])
+  @@index([projectId])
+  @@index([parentId])
+  @@map("file_nodes")
+}
+
+enum FileType {
+  FILE
+  DIRECTORY
+}
+
+// ============================================================================
+// AI ANALYSIS RESULTS
+// ============================================================================
+
+model AnalysisResult {
+  id          String   @id @default(cuid())
+  projectId   String   @unique
+  
+  // Architecture Analysis
+  architecture     Json     // Detected architecture pattern
+  dependencies     Json     // Dependency graph
+  entryPoints      Json     // Main entry points
+  
+  // Code Quality
+  codeQuality      Int      // 1-100 score
+  maintainability  Int      // 1-100 score
+  testCoverage     Int?     // Percentage
+  
+  // Insights
+  strengths        Json     // Array of strengths
+  weaknesses       Json     // Array of weaknesses
+  suggestions      Json     // Array of improvement suggestions
+  
+  // Summary
+  summary          String   @db.Text
+  technicalSummary String   @db.Text
+  userSummary      String   @db.Text  // Non-technical explanation
+  
+  // Metadata
+  analysisVersion  String   @default("1.0")
+  processingTime   Int      // Seconds
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  @@map("analysis_results")
+}
+
+// ============================================================================
+// CODE FLOW GRAPHS
+// ============================================================================
+
+model CodeFlowGraph {
+  id          String   @id @default(cuid())
+  projectId   String
+  
+  // Flow information
+  name        String
+  type        FlowType
+  description String?  @db.Text
+  
+  // Graph data (React Flow format)
+  nodes       Json     // Array of nodes
+  edges       Json     // Array of edges
+  
+  // Metadata
+  startPoint  String?
+  endPoint    String?
+  complexity  Int?
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  @@index([projectId])
+  @@index([type])
+  @@map("code_flow_graphs")
+}
+
+enum FlowType {
+  REQUEST      // HTTP request flow
+  DATA         // Data flow
+  AUTH         // Authentication flow
+  FEATURE      // Feature flow
+  ERROR        // Error handling flow
+  CUSTOM       // Custom flow
+}
+
+// ============================================================================
+// FEATURE MODULES
+// ============================================================================
+
+model FeatureModule {
+  id          String   @id @default(cuid())
+  projectId   String
+  
+  // Module information
+  name        String
+  description String   @db.Text
+  category    String?
+  
+  // Files involved
+  files       Json     // Array of file paths
+  
+  // Technical details
+  technicalDetails String @db.Text
+  
+  // User-friendly explanation
+  userExplanation  String @db.Text
+  
+  // Importance
+  importance  Int      @default(5)  // 1-10 scale
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  @@index([projectId])
+  @@map("feature_modules")
+}
+
+// ============================================================================
+// CHAT SYSTEM
+// ============================================================================
+
+model ChatMessage {
+  id          String   @id @default(cuid())
+  projectId   String
+  userId      String
+  
+  // Message content
+  role        MessageRole
+  content     String   @db.Text
+  
+  // Context
+  mode        ChatMode
+  contextType ContextType?
+  contextData Json?    // Additional context (file path, flow id, etc.)
+  
+  // AI metadata
+  tokens      Int?
+  model       String?
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  
+  // Relations
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([projectId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("chat_messages")
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum ChatMode {
+  DEVELOPER
+  NORMAL
+}
+
+enum ContextType {
+  REPOSITORY
+  FILE
+  FLOW
+  MODULE
+  DOCUMENTATION
+}
+
+// ============================================================================
+// DOCUMENTATION
+// ============================================================================
+
+model Documentation {
+  id          String   @id @default(cuid())
+  projectId   String
+  
+  // Document information
+  title       String
+  slug        String
+  content     String   @db.Text
+  
+  // Metadata
+  category    String?
+  order       Int      @default(0)
+  
+  // Generation info
+  autoGenerated Boolean @default(true)
+  version     String   @default("1.0")
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  @@unique([projectId, slug])
+  @@index([projectId])
+  @@map("documentation")
+}
+
+// ============================================================================
+// INDEXES FOR PERFORMANCE
+// ============================================================================
+
+// Additional indexes are defined inline above using @@index
+// Key indexes:
+// - User projects lookup
+// - Project status filtering
+// - File hierarchy traversal
+// - Chat message history
+// - Flow type filtering
